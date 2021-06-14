@@ -1,0 +1,21 @@
+;   This include file sets up the environment for the USBSER firmware.
+;
+/const   picname = "18F24K50" ;specific PIC model name
+/const   buildname = "usbser" ;name of this project
+/const   srcdir  = "usb"     ;SOURCE directory containing this project
+/const   fwtype  integer = 65 ;unique ID for this firmware
+
+/include "(cog)src/pic/std_def.ins.aspic"
+/include "(cog)src/pic/fwtype.ins.aspic"
+;
+;   Set configuration for the standard routines and macros.
+;
+/const   freq_osc real = 48.0e6 ;CPU oscillator frequency in Hz
+;
+;   Define the stack.  STACKLAST is the starting (lowest) address of the stack,
+;   and STACKSIZE the size of the stack in bytes.
+;
+stacklast set    h'60'
+stacksize set    32
+
+/include "(cog)src/pic/std.ins.aspic"

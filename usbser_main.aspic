@@ -1,0 +1,291 @@
+;   This module contains the main application routine that is run after
+;   the system is initialized.
+;
+/include "usbser.ins.aspic"
+
+         extern_flags        ;declare global flag bits EXTERN
+
+;*******************************************************************************
+;
+;   Configuration constants.
+;
+lbank    equ     0           ;register bank for the local state of this module
+;
+;   Derived constants.
+;
+lbankadr equ     bankadr(lbank) ;address within local state register bank
+/block
+  /var local ii integer
+  /var local r real
+  /var local s string
+
+  /endblock
+
+;*******************************************************************************
+;
+;   Local state.
+;
+         defram  lbankadr
+
+uinbyte  res     1           ;byte read from UART
+ustatus  res     1           ;USTAT STATUS byte value
+                             ;000----- USTAT STATUS opcode
+                             ;---000-- unused, set to 0
+                             ;------X- APP bit, application is connected
+                             ;-------X HOS bit, USB power is on
+
+bit_app  equ     1           ;APP bit number within USTAT STATUS byte
+bit_hos  equ     0           ;HOS bit number within USTAT STATUS byte
+
+
+.main    code
+;*******************************************************************************
+;
+;   Local subroutine CTRLSYNC
+;
+;   Guarantee that the next byte sent to the main controller will be interpreted
+;   as the opcode of a new command.  This is done by sending enough 0 bytes to
+;   guarantee any command in progress is ended.
+;
+         locsub  ctrlsync, regf0 | regf1
+
+         clrf    reg1        ;init to 256 bytes left to send
+sync_loop unbank             ;back here to send each new byte
+         ;
+         ;   Wait a little every 32 bytes.
+         ;
+         movf    reg1, w     ;get number of bytes left to send
+         andlw   31          ;mask in low bits
+         bnz     sync_dwait  ;don't wait this time ?
+         loadk8  reg0, 2     ;wait a little while to prevent overrun
+         gcall   waitms
+sync_dwait unbank
+         ;
+         ;   Send a 0 byte.
+         ;
+         loadk8  reg0, 0
+         gcall   uart_put    ;send 0 byte to the main controller
+         decfsz  reg1        ;count one less byte left to do
+         jump    sync_loop   ;back to send next byte
+
+         leaverest
+
+;*******************************************************************************
+;
+;   Subroutine SEND_FWINFO
+;
+;   Send our firmware information to the main controller.  This will appear to
+;   the controller as a command.  This must only be sent when the host is known
+;   to not be in the middle of a command.
+;
+         locsub  send_fwinfo, regf0
+
+         loadk8  reg0, [v cmd_ustat] ;send USTAT command opcode
+         gcall   uart_put
+         loadk8  reg0, b'00100000'
+                 ;       001----- FW opcode
+                 ;       ---XXXXX unused, set to 0
+         gcall   uart_put
+         loadk8  reg0, fwtype ;send firmware type ID
+         gcall   uart_put
+         loadk8  reg0, fwver ;send firmware version number
+         gcall   uart_put
+         loadk8  reg0, fwseq ;send firmware sequence number
+         gcall   uart_put
+
+         leaverest
+
+;*******************************************************************************
+;
+;   Routine MAIN
+;
+;   This entry point is jumped to from the INIT module, once system
+;   initialization is complete.
+;
+         glbent  main
+
+;**********
+;
+;   Initialize the state managed by this module.
+;
+         dbankif lbankadr
+         clrf    ustatus     ;init STATUS byte to USTAT command
+
+         mcall   ctrlsync    ;make sure the controller is at start of command
+         mcall   send_fwinfo ;send our firmware info to the controller
+
+;**********
+;
+;   Main application loop.  Back here to look for something to do.
+;
+         glbent  loop_main
+
+/if debug_main then
+         set_[chars mainloop_pin]_off
+  /endif
+         gcall   task_yield  ;give other tasks a chance to run
+/if debug_main then
+         set_[chars mainloop_pin]_on
+  /endif
+;
+;   Check USB power present and update state accordingly.
+;
+/if vusb_in then             ;VUSB input defined ?
+         dbankif vusb_reg
+         btfsc   vusb_reg, vusb_bit ;USB power is off ?
+         jump    vusb_on     ;USB power is on
+         ;
+         ;   USB power is off.
+         ;
+         dbankif lbankadr
+         btfss   ustatus, bit_hos ;was on previously ?
+         jump    vusb_done   ;no change in USB power on/off
+         bcf     ustatus, bit_hos ;indicate host is not connected
+         bcf     ustatus, bit_app ;definitely no app connection
+         setflag sendustat   ;need to send USTAT command soon
+         jump    vusb_done
+         ;
+         ;   USB power is on.
+         ;
+vusb_on  unbank
+  /endif
+
+         dbankif lbankadr
+         btfsc   ustatus, bit_hos ;was off previously ?
+         jump    vusb_done   ;no change in USB power on/off
+         bsf     ustatus, bit_hos ;indicate USB power now on
+         bsf     ustatus, bit_app ;app could now be connected
+         setflag sendustat   ;need to send USTAT command soon
+
+vusb_done unbank
+;
+;   Send USTAT command if this is pending.
+;
+         skip_flag sendustat ;need to send USTAT command ?
+         jump    n_sendustat ;no
+
+         clrflag sendustat   ;clear the event condition
+         mcall   ctrlsync    ;sync with main controller command stream
+
+         loadk8  reg0, [v cmd_ustat] ;send USTAT command opcode
+         gcall   uart_put
+         movff   ustatus, reg0 ;send STATUS parameter
+         gcall   uart_put
+
+         mcall   send_fwinfo ;send our firmare information too
+         jump    loop_main
+
+n_sendustat unbank
+;
+;   If there is no USB app connected, drain and discard any bytes received from
+;   the control processor or the USB.
+;
+         dbankif lbankadr
+         btfsc   ustatus, bit_app ;host not connected ?
+         jump    n_poff      ;host is connected, skip this section
+
+poff_usb unbank              ;back here until all bytes from the USB are drained
+         gcall   usb_get1    ;try to get byte from USB buffer
+         btfss   reg1, usbs_noxf ;didn't get a byte ?
+         jump    poff_usb    ;got a byte, go back for another one
+
+         clrflag uinbyte     ;clear any byte previously read from UART
+poff_uart unbank             ;back here until all UART bytes drained
+         skip_flag sin       ;received byte from control processor exists ?
+         jump    loop_main   ;no, nothing more to do
+         gcall   uart_get    ;drain the byte
+         jump    poff_uart   ;back to check for another byte
+
+n_poff   unbank
+;
+;   Handle USB reset.
+;
+         skip_flag usbreset
+         jump    no_usbreset
+
+         clrflag usbreset    ;clear the event condition
+         ;
+         ;   Drain all bytes from the UART input FIFO.
+         ;
+         clrflag uinbyte     ;clear any byte previously read from UART
+usbreset_ruart unbank
+         skip_flag sin       ;a byte from the UART is available ?
+         jump    usbreset_druart ;no
+         gcall   uart_get    ;read the byte
+         jump    usbreset_ruart ;back and try again
+usbreset_druart unbank       ;done draining UART
+
+         jump    loop_main   ;done handling this event
+
+no_usbreset unbank
+;
+;   Transfer everything from the UART to the USB that can be transferred right
+;   now.
+;
+uget_byte unbank
+         skip_nflag uinbyte  ;UINBYTE is empty ?
+         jump    uget_hbyte  ;no, already have byte to send
+         ;
+         ;   If the 0FLOOD test mode is enabled and test point TP1 is being held
+         ;   low, act as if a 0 byte is always available to send.  This causes 0
+         ;   bytes to be sent at the maximum possible rate, and can be useful to
+         ;   test what that rate is.
+         ;
+/if debug_0flood then
+         dbankif tp1_reg
+         btfsc   tp1_pin
+         jump    n_0flood    ;flood not enabled TP1 low ?
+
+         dbankif lbankadr
+         clrf    uinbyte     ;set the simulated received byte
+         setflag uinbyte     ;indicate a input byte is available to send
+         jump    uget_hbyte
+
+n_0flood: unbank
+  /endif
+         ;
+         ;   Try to get a input byte from the UART.
+         ;
+         skip_flag sin       ;UART has at least one byte available ?
+         jump    uget_done   ;no, nothing more to do for now
+         gcall   uart_get    ;get the byte into REG0
+         movff   reg0, uinbyte ;save it in UINBYTE
+         setflag uinbyte     ;indicate a byte is available in UINBYTE
+uget_hbyte unbank            ;the next byte is available in UINBYTE
+         ;
+         ;   Try to send the byte in UINBYTE to the USB.
+         ;
+         movff   uinbyte, reg0 ;get the data byte into REG0
+         loadk8  reg1, 0     ;init to transfer the byte normally
+         skip_nflag sin      ;no byte after this one available ?
+         bsf     reg1, usbc_nflu ;don't flip buffer unless full
+         gcall   usb_put1    ;write the byte to the USB
+         btfsc   reg1, usbs_noxf ;the byte was not accepted ?
+         jump    uget_done   ;nothing more to do for now
+
+         clrflag uinbyte     ;indicate no byte waiting in UINBYTE
+         jump    uget_byte   ;back to try transferring another byte
+
+uget_done unbank             ;done getting bytes from UART
+;
+;   Transfer one byte from the USB to the UART if both are ready do do so.
+;
+         skip_flag sout      ;the UART can accept another byte ?
+         jump    no_uput     ;no, skip this section
+
+         loadk8  reg1, 0     ;indicate to transfer byte normally
+         gcall   usb_get1    ;try to get a byte from the USB
+         btfsc   reg1, usbs_noxf ;got a byte ?
+         jump    no_uput     ;no
+
+         gcall   uart_put    ;send the byte to the UART
+         jump    loop_main
+
+no_uput  unbank
+;
+;   Done checking all events.  Go back to the start of the event loop and check
+;   them all again.
+;
+         jump    loop_main   ;back to start of main event loop
+
+         end

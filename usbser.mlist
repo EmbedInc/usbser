@@ -1,0 +1,13 @@
+usbser_init.o
+usbser_intr.o
+usbser_main.o
+usbser_name.o
+usbser_port.o
+usbser_prom.o
+usbser_regs.o
+usbser_stack.o
+usbser_supp.o
+usbser_task.o
+usbser_uart.o
+usbser_usb.o
+usbser_usb0.o

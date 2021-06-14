@@ -1,0 +1,454 @@
+;   Interrupt service and related routines.
+;
+/include "usbser.ins.aspic"
+
+         extern_flags        ;declare global flag bits EXTERN
+
+;*******************************************************************************
+;
+;   Configuration constants.
+;
+intr_priorities equ false    ;disable multiple interrupt priorities
+;
+;   Indicate which FSRs are to be saved by the single/high and low priority
+;   interrupt routines.
+;
+;   FSR0 is used by the FIFO_xxx macros, and must be saved if FIFOs are
+;   accessed from interrupt code.  Note that the UART interrupt routines
+;   use FIFOs.
+;
+;   FSR1 has no dedicated purpose in the general PIC development environment.
+;
+;   FSR2 is reserved as the software stack pointer.  This stack will be used
+;   to save state during an interrupt.  FSR2 must therefore not be explicitly
+;   saved.  It will automatically be restored if the same number of bytes
+;   are popped from the stack as are pushed to the stack.
+;
+save_fsr0 equ    true        ;indicate whether save/restore FSR0 in sgl/high intr
+save_fsr1 equ    true        ;indicate whether save/restore FSR1 in sgl/high intr
+
+save_fsr0l equ   false       ;indicate whether save/restore FSR0 in low prio intr
+save_fsr1l equ   false       ;indicate whether save/restore FSR1 in low prio intr
+
+;**********
+;
+;   Derived constants.
+;
+/block
+  /var local ii integer
+  /var local r real
+  /var local s string
+
+  /const mscy integer = [rnd [/ freq_inst 1000]] ;instruction cycles in 1 ms
+  /const tickdiv integer = [div mscy tmr2_cycles] ;tick divider to make 1 ms
+
+  /set s ""
+  /append s "Timer 2 prescaler " tmr2_pre
+  /append s ", period " tmr2_per
+  /append s " (" [eng [/ [* tmr2_pre tmr2_per] freq_inst]] "s)"
+  /append s ", postscaler " tmr2_pos
+  /show "  " s
+
+  /set s ""
+  /append s "Clock tick " [eng tmr2_period 4] "s"
+  /if [exist "tmr2_error:vcon"] then
+    /append s " (" [fp [* tmr2_error 100] "sig 0 rit 1 mxl 3 pl"] "% err)"
+    /endif
+  /append s ", " [eng tmr2_freq 4] "Hz"
+  /append s ", " tmr2_cycles " cycles"
+  /append s ", " tickdiv " ticks/ms"
+  /show "  " s
+
+  /if [<> [* tmr2_cycles tickdiv] mscy] then ;not even number of ticks per ms ?
+    /show "  Not whole clock ticks per ms."
+         error   TICKDIV
+         end
+    /stop
+    /endif
+  /endblock
+
+;*******************************************************************************
+;
+;   Global state.
+;
+;   The following global state is in the normal register bank for global
+;   state.  The bank is GBANK, and GBANKADR is an address guaranteed to
+;   be within this bank.
+;
+         defram  gbankadr
+         iregs_define        ;define registers exclusively for interrupt routines
+
+tick1ms  res     1           ;incremented every 1 ms clock tick
+tick5ms  res     1           ;incremented every 5 ms clock tick
+tick100ms res    1           ;incremented every 100 ms clock tick
+seconds  res     4           ;incremented every second
+
+         global  tick1ms, tick5ms, tick100ms, seconds
+
+;*******************************************************************************
+;
+;   Local state.  This is always in the same register bank as the global
+;   state.
+;
+/if [<> tickdiv 1] then
+cnt1ms   res     1           ;timer 2 ticks until next 1 ms tick
+  /endif
+cnt5ms   res     1           ;1 ms ticks until next 5 ms tick
+cnt100ms res     1           ;5 ms ticks until next 100 ms tick
+cntsec   res     1           ;100 ms ticks until next 1 second tick
+
+
+.intr    code
+;*******************************************************************************
+;
+;   Subroutine INTR_INIT
+;
+;   Initialize the interrupt system and other state managed by this module.
+;
+         glbsub  intr_init, noregs
+;
+;   Initialize global state.
+;
+         dbankif gbankadr
+         loadk8  tick1ms, 0
+         loadk8  tick5ms, 0
+         loadk8  tick100ms, 0
+         loadk32 seconds, 0
+;
+;   Initialize local state.
+;
+         dbankif gbankadr
+/if [<> tickdiv 1] then
+         loadk8  cnt1ms, [v tickdiv]
+  /endif
+         loadk8  cnt5ms, 5
+         loadk8  cnt100ms, 20
+         loadk8  cntsec, 10
+;
+;   Set up timer 2 to produce the periodic clock tick.
+;
+         timer2_setup_intr   ;set up timer 2, enable its interrupt
+;
+;   Enable interrupts.  The interrupt system was reset at startup to
+;   all interrupts disable, single interrupt priority, and all interrupt
+;   priorities set to the lowest.  Any interrupts that are needed have
+;   been individually configured, but interrupts are still globally
+;   disabled.
+;
+  if intr_priorities         ;using multiple priority interrupts ?
+         dbankif rcon
+         bsf     rcon, ipen  ;configure for multiple interrupt priorities
+         bsf     intcon, gieh ;enable high priority interrupts
+         bsf     intcon, giel ;enable low priority interrupts
+    else                     ;using a single interrupt priority
+         bsf     intcon, peie ;enable the peripheral interrupts
+         bsf     intcon, gie ;globally enable interrupts
+    endif
+
+         leaverest
+
+;*******************************************************************************
+;
+;   Subroutine WAITMS
+;
+;   Wait the number of milliseconds in REG0.  Other tasks are run while the
+;   calling task waits.
+;
+         glbsub  waitms, regf0 | regf1
+
+         movf    reg0        ;abort if no ms to wait
+         bz      waitms_leave
+
+         movff   tick1ms, reg1 ;init clock tick current with
+waitms_loop unbank
+         gcall   task_yield_save ;give other tasks a chance to run
+waitms_check unbank
+         dbankif gbankadr
+         movf    tick1ms, w  ;get latest clock value
+         xorwf   reg1, w     ;compare to clock value current with
+         bz      waitms_loop ;no new clock tick ?
+         incf    reg1        ;update clock value now current with
+         decfsz  reg0        ;count one less tick until wait done
+         jump    waitms_check ;wait not elapsed yet ?
+
+waitms_leave unbank
+         leaverest
+
+;*******************************************************************************
+;
+;   Subroutine WAITMS16
+;
+;   Wait the number of milliseconds in REG1:REG0.  Other tasks are run while the
+;   calling task waits.
+;
+         glbsub  waitms16, regf0 | regf1 | regf2
+
+         movff   tick1ms, reg2 ;init clock tick current with
+
+wms16_loop unbank
+         movf    reg0, w     ;set Z if wait is done
+         iorwf   reg1, w
+         bz      wms16_leave ;all done ?
+         gcall   task_yield_save ;no, give other tasks a chance to run
+
+         dbankif gbankadr
+         movf    tick1ms, w  ;get latest clock value
+         xorwf   reg2, w     ;compare to clock value current with
+         bz      wms16_loop  ;no new clock tick ?
+
+         incf    reg2        ;update clock value now current with
+         decf    reg0        ;count on less ms left to go
+         movlw   0
+         subwfb  reg1
+         jump    wms16_loop
+
+wms16_leave unbank
+         leaverest
+
+;*******************************************************************************
+;
+;   High priority or single interrupt service routine.
+;
+;   The processor executes a call to location 8 on an interrupt, and in
+;   addition globally disables interrupts.  These are re-enabled at the end
+;   of the ISR by the RETFIE instruction.
+;
+;   Note that subroutine calls must be minimized or avoided in the ISR.
+;   Since an interrupt can come at any time in the main code, any additional
+;   call stack locations used here are not available anywhere else.
+;
+;   The fast register stack is used to save/restore W, STATUS, and BSR
+;   for this interrupt.
+;
+  if intr_priorities
+.intr_high code  h'8'        ;high priority interrupt vector
+    else
+.intr_svc code   h'8'        ;single priority interrupt vector
+    endif
+         unbank              ;indicate the bank setting is unknown
+;
+;   W, STATUS, and BSR have been automatically saved onto the fast register
+;   stack by the interrupt hardware.
+;
+  if save_fsr0               ;need to save FSR0 ?
+         pushreg fsr0l
+         pushreg fsr0h
+    endif
+
+  if save_fsr1               ;need to save FSR1 ?
+         pushreg fsr1l
+         pushreg fsr1h
+    endif
+
+;*******************************************************************************
+;*******************************************************************************
+;
+;   Low priority interrupt service routine.
+;
+;   This section of code gets inserted if multiple priority interrupts
+;   are enabled.  The high priority interrupt vector is at 8, and
+;   the low priority vector at 18h.  We assume that the interrupt
+;   service routine requires more than the 8 instructions between the
+;   two vectors, so the high priority service routine must jump to a
+;   different location to avoid colliding with the low priority interrupt
+;   vector.  In that case, the high priority interrupt handler continues
+;   immediately after the low priority interrupt handler code.
+;
+;   If multiple interrupt priorites are disabled, then there is nothing
+;   special about location 18h and the interrupt handler can continue
+;   right over it without harm.
+;
+  if intr_priorities         ;multiple interrupt priorities in use ?
+         jump    intr_high_cont ;continue after low priority handler
+;
+;   Low priority interrupt service routine.  This routine can not use
+;   the fast call stack and must save/restore W, STATUS, and BSR
+;   explicitly.
+;
+.intr_low code   h'18'       ;low priority interrupt vector
+         unbank              ;indicate the bank setting is unknown
+         movwf   preinc2     ;save W onto the software stack
+         swapf   indf2       ;swap so that can be read with SWAPF on restore
+         pushreg status      ;save STATUS onto the software stack
+         pushreg bsr         ;save BSR onto the software stack
+
+    if save_fsr0l            ;need to save FSR0 ?
+         pushreg fsr0l
+         pushreg fsr0h
+      endif
+
+    if save_fsr1l            ;need to save FSR1 ?
+         pushreg fsr1l
+         pushreg fsr1h
+      endif
+;
+;   W, STATUS, BSR, and the general FSRs (if enabled) have been saved.
+;   Now determine the interrupt condition and service it.
+;
+
+         reset               ;unexpected interrupt, should never happen
+;
+;   Done servicing the low priority interrupt condition.  Now restore
+;   to the state at the start of the interrupt and return from the
+;   interrupt.
+;
+intr_retl unbank             ;common low priority interrupt exit point
+
+    if save_fsr1l            ;need to restore FSR1 ?
+         popreg  fsr1h
+         popreg  fsr1l
+      endif
+
+    if save_fsr0l            ;need to restore FSR0 ?
+         popreg  fsr0h
+         popreg  fsr0l
+      endif
+
+         popreg  bsr         ;pop BSR from software stack to restore it
+         popreg  status      ;pop STATUS from software stack to restore it
+         swapf   postdec2, w ;pop W from software stack to restore it
+         retfie              ;return from the interrupt
+;
+;   Continue the high priority interrupt service routine here.
+;
+intr_high_cont unbank
+         unbank
+    endif                    ;end of multiple interrupt priorities in use case
+;
+;   End of code inserted only if multiple interrupt priorities are in use.
+;
+;*******************************************************************************
+;*******************************************************************************
+;
+;   The high or single interrupt priority routine continues here.
+;
+;   W, STATUS, BSR, and the general FSRs (if enabled) have been saved.
+;   Now determine the interrupt condition and service it.
+;
+
+;
+;   Check for UART receive interrupt.
+;
+         extern  uart_intr_recv ;receive interrupt routine in UART module
+
+         dbankif pir1
+         btfss   pir1, rcif
+         jump    no_uart_recv
+         gjump   uart_intr_recv ;handle interrupt, will go to INTR_RET_UART on done
+no_uart_recv dbankis pir1
+;
+;   Check for timer 2 interrupt.
+;
+         dbankif pir1
+         btfsc   pir1, tmr2if
+         jump    intr_tmr2   ;go handle timer 2 interrupt
+;
+;   Check for UART transmitter ready interrupt.
+;
+         extern  uart_intr_xmit ;receive interrupt routine in UART module
+
+         dbankif pie1
+         btfss   pie1, txie  ;UART transmit interrupts enabled ?
+         jump    no_uart_xmit ;no
+         dbankif pir1
+         btfss   pir1, txif  ;UART transmit interrupt pending ?
+         jump    no_uart_xmit ;no
+         gjump   uart_intr_xmit ;handle interrupt, will go to INTR_RET_UART on done
+no_uart_xmit dbankis pir1
+;
+;   Check for interrupt that indicates allowed to send UART data again.
+;
+         extern  uart_intr_send
+
+         dbankif intcon3
+         btfss   intcon3, int1if
+         jump    no_uart_send
+         gjump   uart_intr_send ;handle the interrupt, goes to INTR_RET_UART on done
+no_uart_send dbankis intcon3
+
+         reset               ;unexpected interrupt, should never happen
+
+;****************************************
+;
+;   Timer 2 interrupt.  This is the periodic clock tick every 1 ms.
+;
+intr_tmr2 dbankis pir1
+         bcf     pir1, tmr2if ;clear the interrupt condition
+;
+;   Divide down timer 2 interrupt ticks to make 1 ms ticks.  This section is
+;   only enabled when there is more than one timer 2 tick per ms.
+;
+/if [<> tickdiv 1] then
+         dbankif gbankadr
+         decfsz  cnt1ms      ;time for 1 ms clock tick ?
+         jump    intr_ret    ;no
+
+         loadk8  cnt1ms, [v tickdiv] ;reset time until next 1 ms tick
+  /endif
+
+;
+;   1 ms clock tick.
+;
+         dbankif gbankadr
+         incf    tick1ms     ;1 ms clock tick
+
+         decfsz  cnt5ms      ;time for 5 ms tick ?
+         jump    intr_ret    ;no
+;
+;   5 ms clock tick.
+;
+         dbankif gbankadr
+         loadk8  cnt5ms, 5   ;reset time until next tick
+
+         incf    tick5ms     ;5 ms clock tick
+
+         decfsz  cnt100ms    ;time for 100 ms tick ?
+         jump    intr_ret    ;no
+;
+;   100 ms clock tick.
+;
+         dbankif gbankadr
+         loadk8  cnt100ms, 20 ;reset time until next tick
+
+         incf    tick100ms   ;100 ms clock tick
+
+         decfsz  cntsec      ;time for 1 second tick ?
+         jump    intr_ret    ;no
+;
+;   1 second clock tick.
+;
+         dbankif gbankadr
+         loadk8  cntsec, 10  ;reset time until next tick
+
+         movlw   0
+         incf    seconds+0   ;increment 32 bit seconds counter
+         addwfc  seconds+1
+         addwfc  seconds+2
+         addwfc  seconds+3
+
+         ;   INTR_RET is assumed to follow immediately below
+
+;****************************************
+;
+;   Done servicing the high priority interrupt condition.  Now restore
+;   to the state at the start of the interrupt and return from the
+;   interrupt.  W, STATUS, and BSR have been saved on the hardware fast
+;   register stack and will be restored as part of the RETFIE FAST
+;   instruction.
+;
+intr_ret unbank              ;common high/single priority interrupt exit point
+         glbent  intr_ret_uart ;UART interrupt routines return here when done
+
+  if save_fsr1               ;need to restore FSR1 ?
+         popreg  fsr1h
+         popreg  fsr1l
+    endif
+
+  if save_fsr0               ;need to restore FSR0 ?
+         popreg  fsr0h
+         popreg  fsr0l
+    endif
+
+         retfie  fast        ;return from high/only priority interrupt
+
+         end

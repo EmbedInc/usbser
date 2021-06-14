@@ -1,0 +1,180 @@
+;   Include file for the USBSER PIC application.
+;
+;   This firmware is a USB to serial converter, using Embed's standard USB
+;   driver on the host.
+;
+;   Peripheral usage:
+;
+;     Oscillator  -  Driven from 12 MHz external crystal.  With 4x PLL provides
+;       the 48 MHz clock required for full speed USB operation.  The CPU runs
+;       from this 48 MHz clock without being divided down.  The instruction rate
+;       is therefore 12 MHz.
+;
+;     TMR2  -  Used as the main clock base in the INTR module, and sets the PWM
+;       period as used in the SUPP module.  The timer configuration is
+;       determined in this include file so that it is visible to all modules.
+;       The timer is set up and managed in the INTR module.
+;
+;     UART  -  Provides the in-board interface to the USB enpoint 1 byte
+;       streams.  Implements Embed USB device 10 protocol.  Managed in the UART
+;       module.
+;
+;     USB  -  Managed in USB module.  Enumeration requests handled in USB0
+;       module.
+;
+;     CCP1  -  Used in PWM mode to produce the pulses for driving the switching
+;       power supply.  Only used when ISOLPWR set to TRUE.  Managed in the SUPP
+;       module.
+;
+;     VREF  -  Supplies the reference to compare the power supply threshold
+;       detect feedback signal to.  Only used when ISOLPWR is set to TRUE.
+;       Managed in the SUPP module.
+;
+;     COMPARATOR 1  -  Compares the switching power supply feedback signal to
+;       the VREF output.  This drives the PWM shutdown directly in hardware to
+;       stop switching power supply pulses when the supply is above its
+;       regulation threshold.  Only used when ISOLPWR is TRUE.  Managed in the
+;       SUPP module.
+;
+/const   debug_icd bool = false
+/const   debug   bool = false
+/const   debug_0flood bool = false ;sends max rate 0 bytes to host when TP1 low
+/const   debug_txie bool = false ;show TXIE state
+/const   debug_main bool = false ;show on out pin when in main loop
+;
+;   Application configuration parameters
+;
+/const   namemaxlen integer = 80 ;max allowed char in user-settable name string
+/const   cmd_ustat integer = 255 ;USB status command opcode to send to client
+
+gbankadr equ     0           ;put ordinary globals into access bank
+;
+;   Identify the taget hardware.  BOARD can be one of the following strings:
+;
+;     S5MAIN2  -  The USB to serial converter built into the second Sentry 5
+;       prototype, or later compatible.
+;
+;   Derive low level configuration details from the target board type.
+;
+/const   board   string = "S5MAIN2"
+/pick one by board
+
+/option "S5MAIN2"            ;Sentry 5 USB to CAN bridge, board ver 2
+  /const usb_curr real = 0.050 ;USB power current draw, A
+  /const usb_manuf string = "Jowa USA" ;manufacturer name
+  /const usb_prod string = "Sentry 5 USB to CAN bridge" ;product name
+  /const usb_vid integer = 5824 ;USB vendor ID (Voti vendor ID)
+  /const usb_pid integer = 1489 ;device ID within VID, Embed device 10
+  /const usb_name = "Jowa Sentry 5" ;Embed10 device name
+  /const stopu_in bool = true ;STOPU input in use, stop serial sending when low
+  /const isolpwr bool = false ;not driving isolated power supply
+  /const baud real = 273438  ;desired UART baud rate
+  /const tick_per = 0.001    ;base clock tick period, seconds
+  /const vusb_in bool = false	;no USB voltage sense input
+
+/optionelse                  ;BOARD didn't match a known board name
+  /show "  Unsupported target board type " board " set in JDSP.INS.ASPIC"
+         error   Board type
+         end
+  /stop
+  /endpick
+
+/include "usbserlib.ins.aspic"
+;
+;   Define the set or registers that will be saved across calls to TASK_YIELD.
+;
+tsksave  set     0           ;build the mask of registers for TASK_YIELD to save
+tsksave  set     tsksave | regf0
+tsksave  set     tsksave | regf1
+tsksave  set     tsksave | regf2
+tsksave  set     tsksave | regf3
+tsksave  set     tsksave | regf4
+tsksave  set     tsksave | regf5
+tsksave  set     tsksave | regf6
+tsksave  set     tsksave | regf7
+
+/include "(cog)src/pic/task_setup.ins.aspic" ;derive additional tasking setup
+;
+;   Derived constants.
+;
+namemaxlen equ   [v namemaxlen]
+         ;
+         ;   Compute the timer 2 setup.  No code is generated, only the setup
+         ;   parameters are derived from the desired clock tick period set by
+         ;   TICK_PER, above.  The following preprocessor constants are set:
+         ;
+         ;     TMR2_PRE  -  timer 2 prescaler value: 1, 4, or 16
+         ;
+         ;     TMR2_PER  -  timer 2 period divide value: 1 - 256
+         ;
+         ;     TMR2_POS  -  timer 2 postscaler value: 1 - 16
+         ;
+         ;     TMR2_PERIOD  -  Actual timer 2 period in seconds.
+         ;
+         ;     TMR2_CYCLES  -  Actual timer 2 period in instruction cycles.
+         ;
+         ;     TMR2_PERPWM  -  Period for PWM (no postscaler) in seconds.
+         ;
+         ;     TMR2_CYPWM  -  Period for PWM in instruction cycles.
+         ;
+         ;     TMR2_FREQ  -  Actual timer 2 frequency, Hz.
+         ;
+         tmr2cy_closeper [v tick_per] ;compute timer setup
+
+/include "usbser_usb.ins.aspic" ;global definitions required by USB subsystem
+
+;**********
+;
+;   EEPROM allocation.  Each of the EE_xxx symbols is the offset of a particular
+;   piece of non-volatile state from the beginning of the EEPROM.  Fixed
+;   allocation of the EEPROM is performed here instead of letting the linker
+;   place individual pieces of state so that consistancy is maintained between
+;   firmware versions.  To the extent possible, newer firmware versions should
+;   use the same EEPROM state in the same locations as previous versions.  This
+;   at least makes it possible for non-volatile settings to be preserved for
+;   some types of firmware updates, such as bootloads.  Note that this comment
+;   does not guarantee any such mechanisms are actually implemented.
+;
+  cblock 0
+         ee_namelen:1        ;number of characters in user-settable name string
+         ee_name:namemaxlen  ;the user-settable name string characters
+    endc
+
+;**********
+;
+;   Global flag bits.
+;
+/flag    sin                 ;UART has a received character available
+/flag    sout                ;UART can accept a new character to send
+/flag    promlock            ;non-volatile memory is acquired by a task
+/flag    uinbyte             ;a UART input byte is available in the FIFO
+/flag    sendustat           ;send USTAT command to serial device
+
+;**********
+;
+;   I/O pin declarations.
+;
+;   The ports are initialized in the PORT module according to the I/O
+;   bit definitions here.
+;
+/outbit  ra0     porta 0     ;unused
+/outbit  ra1     porta 1     ;unused
+/outbit  ra2     porta 2     ;unused
+/outbit  ra3     porta 3     ;unused
+/outbit  ra4     porta 4     ;unused
+/outbit  ra5     porta 5     ;unused
+
+/outbit  rb0     portb 0     ;unused
+/inbit   txgo    portb 1 pup ;allow UART sending when high, passive pullup
+/outbit  rb2     portb 2     ;unused
+/outbit  rb3     portb 3     ;unused
+/outbit  rb4     portb 4     ;unused
+/outbit  rb5     portb 5     ;unused
+/outbit  pgc     portb 6     ;programming clock line
+/outbit  pgd     portb 7     ;programming data line
+
+/outbit  rc0     portc 0     ;unused
+/outbit  rc1     portc 1     ;unused
+/outbit  rc2     portc 2     ;unused
+/outbit  tx      portc 6 n   ;UART transmit line
+/inbit   rx      portc 7     ;UART receive line

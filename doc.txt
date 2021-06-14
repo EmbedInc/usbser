@@ -1,0 +1,64 @@
+                          Embed firmware USBSER
+                              11 June 2021
+
+Embed USB to serial converter firmware.  This device runs on a PIC 18F
+that includes a USB SIE and a UART.  The application on the USB host
+communicates using a bi-directional byte stream implemented with USB
+endpoint 1 in and out.  This is passed on to/from the UART.
+
+The purpose is to provide USB capability to a device over a UART, but have
+it identify as a specific USB device, not a generic USB to serial
+converter.  That means the user does not have to configure a serial port,
+know the baud rate, etc.  It also means that a custom USB driver must be
+installed on the host.  To the end user, the overall device is a normal
+USB device with plug and play capability.  The Embed USB driver is
+assumed.
+
+This firmware assumes the device connected to the UART adheres to the
+Embed USB device 10 protocol.  See the EMBED10 documentation file for a
+description of this protocol.
+
+The UART protocol can be configured at build time, and can therefore vary
+between firmware versions.  Unless otherwise specified in the Firmware
+Versions section below, this protocol is 115.2 kBaud, 8 data bits, 1 start
+bit, 1 stop bit, and no parity bit.
+
+The TXGO input can be driven low to cause this firmware to stop sending
+over the UART within a few bytes.  The purpose is to implement flow
+control over sending from the host to the device.  Since USB is inherently
+flow controlled, holding the TXGO line low will eventually cause this
+firmware to not accept new data from the host over the USB.  The TXGO line
+is passively pulled high so that nothing needs to be connected to it when
+this feature is not used.
+
+Flow control in the device to host direction is implemented with the RXGO
+and RXSTOP outputs.  In normal operation, the RXGO line is driven high,
+and the RXSTOP line low.  When there are only a few bytes of room left in
+the UART input FIFO, RXGO is driven low and RXSTOP high.  The lines are
+driven back to their normal state when the FIFO is drained due to the host
+reading data from the device over the USB.  The RXGO and RXSTOP lines
+provide the same signal with opposite polarity for ease of hardware
+interfacing.  It is intended that at most one of these signals is used in
+any specific implementation.
+
+Note that flow control to slow the sending of data from the device to the
+host is often not necessary.  Most USB implementations are much faster
+than common UART baud rates, such that it is usually impossible for the
+device to overrun the USB.
+
+This firmware does not interpret the bytes it passes between the USB and
+the UART, so implements no command set of its own except as provided for
+in the Embed USB Device 10 Protocol.
+
+
+Firmware Versions
+
+  USBSER 1
+
+    Manufacturer name: "Embed Inc"
+    Product name: "USBSER"
+    PIC: 18F24K50
+    VID/PID: 5824/1489 (Embed device 10)
+    Serial port output FIFO size: ?? bytes
+    Serial port input FIFO size: ?? bytes
+    RXSTOP threshold: 8 or fewer bytes in serial input FIFO

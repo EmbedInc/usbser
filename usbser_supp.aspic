@@ -1,0 +1,219 @@
+;   Switching power supply controller.  This power supply is only created when
+;   the ISOLPWR switch is set to TRUE.
+;
+;   Switching pulses are created by the CCP1 module in PWM mode, with the P1A
+;   output being used.  Pulses are created at a fixed period and duty cycle,
+;   stopped by the shutdown input to the CCP1 module.
+;
+;   Comparator 1 drives the internal PWM shutdown signal.  When the comparator
+;   output is high, the PWM pulses are inhibited.  The comparator compares the
+;   PSHUT input signal against a fraction of Vdd.  When PSHUT is below this Vdd
+;   fraction, then the comparator is high, and pulses are inhibited.
+;
+;   The period is set by timer 2.  The timer 2 setup is determined in the main
+;   include file, and is beyond the control of this module.  The pulse length
+;   is defined here with the DESPULSE constant, below.
+;
+;   Once the power supply is set up, it runs without any further firmware
+;   intervention.  The power supply is started by SUPP_INIT.  When the power
+;   supply is disabled by ISOLPWR being FALSE, SUPP_INIT does nothing, and no
+;   system resources are used.
+;
+;   WARNING: It was originally intended that PSHUT drive the INT0 input, which
+;     can be configured as a PWM shutdown source.  However, this did not work.
+;     There appears to be a bug in the silicon that is not listed in the errata,
+;     which somehow prevents the INT0 input acting as a PWM shutdown source.
+;
+/include "usbser.ins.aspic"
+
+;*******************************************************************************
+;
+;   Configuration constants.
+;
+/const   despulse real = 10.0e-6 ;desired pulse width, seconds
+/const   shthresh real = .70 ;Vdd fraction for detecting supply voltage threshold
+lbank    equ     0           ;register bank for the local state of this module
+;
+;   Constants that indicate external realities.
+;
+/const   pstretch real = 1.0e-6 ;seconds pulse is stretched by hardware
+/const   vdd     real = 5.0  ;nominal Vdd voltage
+
+;*******************************************************************************
+;
+;   Minimum module when the power supply is disabled.
+;
+/if [not isolpwr] then       ;power supply is disabled ?
+  /show "  Disabled"
+.supp    code
+         glbsub  supp_init
+         leaverest
+         end
+  /stop
+  /endif
+
+;*******************************************************************************
+;
+;   Derived constants.
+;
+/block
+  /var local ii integer
+  /var local r real
+  /var local s string
+
+  /const percy integer = [* tmr2_pre tmr2_per] ;pulse period, instr cycles
+  /const period real = [/ percy freq_inst] ;pulse period, seconds
+
+  /set r [/ freq_inst tmr2_pre] ;timer 2 increment frequency
+  /set r [* r 4]             ;duty cycle units frequency
+  /const dutcnt integer = [rnd [* [- despulse pstretch] r]] ;duty cycle counts
+  /const pulsec real = [+ [/ dutcnt r] pstretch] ;actual pulse length, seconds
+  /const duty real = [/ pulsec period] ;duty cycle fraction of pulse length
+
+  /const vrdiv integer = [rnd [* shthresh 32]] ;Vref Vdd divider value
+  /set r [/ vrdiv 32]        ;actual Vref divider fraction
+  /const vref real = [* vdd r] ;actual Vref
+
+  /set s ""
+  /append s "Period " [eng period] "s"
+  /append s ", " percy " cy"
+  /append s ", " [eng [/ 1 period]] "Hz"
+  /append s ", Pulse " [eng pulsec] "s (" dutcnt " counts)"
+  /append s ", Duty " [fp [* duty 100] "sig 0 mxl 4 rit 1"] "%"
+  /show "  " s
+
+  /set s ""
+  /append s "Vref divider " vrdiv
+  /append s ", Vref " [eng vref] "V"
+  /append s " (" [fp [* [/ vref vdd] 100] "sig 0 mxl 3 rit 1"] "% Vdd)"
+  /show "  " s
+
+  /if [> dutcnt 1024] then
+    /show "  ERROR: Pulse length too high, 1024 counts max"
+         error   "Pulse length"
+         end
+    /stop
+    /endif
+  /if [> duty 0.9] then
+    /show "  ERROR: Duty cycle too high"
+         error   "Duty cycle"
+         end
+    /stop
+    /endif
+
+  /const dutset integer = [- dutcnt 1] ;duty cycle setting
+  /const dutlow integer = [and dutset 2#11] ;low two bits of duty cycle
+  /endblock
+
+lbankadr equ     bankadr(lbank) ;address within local state register bank
+
+;*******************************************************************************
+;
+;   Global state.  All this state is assumed to be in the GBANK register
+;   bank by other modules.
+;
+         defram  gbankadr
+
+
+;*******************************************************************************
+;
+;   Local state.
+;
+         defram  lbankadr
+
+
+.supp    code
+;*******************************************************************************
+;
+;   Subroutine SUPP_INIT
+;
+;   Initialize the hardware and software state managed by this module.
+;
+supp_init glbsub
+         dbankif ansel
+         bsf     ansel, ans4 ;make INT0 pin analog in
+         bsf     ansel, ans6 ;make compartor 1/2 input 2- analog in
+;
+;   Set up voltage reference to make SHTHRESH fraction of Vdd.
+;
+         setreg  b'00010000', refcon0
+                 ; 0-------  disable fixed voltage reference
+                 ; -X------  indicates fixed voltage reference is stable
+                 ; --01----  select 1.024 V (not used)
+                 ; ----XXXX  unused
+
+         setreg  b'00000000' | [v vrdiv], refcon2
+                 ; XXX-----  unused
+                 ; ---XXXXX  set Vref as fraction of Vdd, from VRDIV
+
+         setreg  b'10000000', refcon1
+                 ; 1-------  DAC is enabled
+                 ; -0------  select negative input when off
+                 ; --0-----  Vref not driven to output pin
+                 ; ---X----  unused
+                 ; ----00--  positive input is Vdd
+                 ; ------X-  unused
+                 ; -------0  negative input is Vss
+;
+;   Set up comparator 1 to trigger when AN6 is below Vref.
+;
+         setreg  b'10001110', cm1con0
+                 ; 1-------  turn on comparator 1
+                 ; -X------  comparator output, read only
+                 ; --0-----  comparator output doesn't drive output pin
+                 ; ---0----  not inverted, output 1 when neg input is low
+                 ; ----1---  normal speed/power, not low power
+                 ; -----1--  + input is internal Vref
+                 ; ------10  - input is C12IN2- (RC2)
+
+         setreg  b'00000100', cm2con0
+                 ; 0-------  comparator 2 off
+                 ; -X------  comp 2 output, read only
+                 ; --0-----  comp 2 output doesn't drive output pin
+                 ; ---0----  comp 2 output not inverted
+                 ; ----0---  comp 2 low power mode
+                 ; -----1--  + input is internal Vref
+                 ; ------00  - input is AGND
+
+         setreg  b'00000000', cm2con1
+                 ; X-------  comp 1 output, read only
+                 ; -X------  comp 2 output, read only
+                 ; --0-----  comp 1 Vref is CVref, not FVR
+                 ; ---0----  comp 2 Vref is CVref, not FVR
+                 ; ----0---  comp 1 hysteresis disabled
+                 ; -----0--  comp 2 hysteresis disabled
+                 ; ------0-  comp 1 output is asynchronous
+                 ; -------0  comp 2 output is asynchronous
+;
+;   Set up the CCP1 module to produce the pulses.
+;
+         setreg  0, ccp1con  ;force CCP1 module off while changing config
+
+         setreg  b'00010000', eccp1as
+                 ; 0-------  no shutdown occurred
+                 ; -001----  shutdown on comparator 1 output high
+                 ; ----00--  shutdown forces P1A and P1C low
+                 ; ------00  shutdown forces P1B and P1D low
+
+         setreg  b'10000000', pwm1con
+                 ; 1-------  auto-restart when shutdown is de-asserted
+                 ; -0000000  cycles to delay start of each pulse
+
+         setreg  b'00000001', pstrcon
+                 ; XXX-----  unused
+                 ; ---0----  output steering changes effective immediately
+                 ; ----0---  disable P1D output
+                 ; -----0--  disable P1C output
+                 ; ------0-  disable P1B output
+                 ; -------1  enable P1A output
+
+         setreg  [shiftr dutset 2], ccpr1l ;set high 8 bits of duty cycle
+
+         setreg  b'00001100' | [shiftl dutlow 4], ccp1con
+                 ; 00------  single output, controlled by steering
+                 ; --XX----  low 2 bits of duty cycle, from DUTLOW
+                 ; ----1100  PWM mode, all outputs active high
+
+         leaverest
+
+         end

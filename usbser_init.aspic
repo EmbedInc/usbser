@@ -1,0 +1,49 @@
+;   Module to perform system initialization after the individual modules
+;   have been initialized.  The module initialization is done in the
+;   startup module USBSER_STRT.  The main application routine is jumped to
+;   once system initialization is complete.
+;
+/include "usbser.ins.aspic"
+
+         extern  main        ;main application routine start point
+
+         extern_flags        ;declare global flag bits EXTERN
+
+;*******************************************************************************
+;
+;   Configuration constants.
+;
+lbank    equ     0           ;register bank for the local state of this module
+;
+;   Derived constants.
+;
+lbankadr equ     bankadr(lbank) ;address within local state register bank
+
+;*******************************************************************************
+;
+;   Local state.
+;
+         defram  lbankadr
+
+.init    code
+
+;*******************************************************************************
+;
+;   Routine INIT
+;
+;   This routine is jumped to from the STRT module after the individual
+;   modules have been initialized.
+;
+         glbent  init
+
+         loadk16 reg0, 500   ;wait a while
+         gcall   waitms16
+
+         gcall   usb_start   ;start USB communication, if connected
+;
+;   System initialization is complete.  Run the main foreground operating
+;   loop.
+;
+         gjump   main
+
+         end
