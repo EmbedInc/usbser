@@ -53,7 +53,7 @@ in the Embed USB Device 10 Protocol.
 
 Firmware Versions
 
-  USBSER 1
+  USBSER 1 seq 24, 14 Jun 2021
 
     Started with clone of Jowa JSER firmware.  Changed from PIC 18F14K50
     to 18F24K50 processor.  This processor has more RAM, which allows
@@ -86,3 +86,5 @@ Firmware Versions
     The only optional feature implemented in this version is the TXGO
     input, on RB1, pin 22.  This input is passively pulled high.  Pulling
     it low causes the UART to stop sending.
+
+    Serial port: 273,438 baud, 8 data bits, 1 stop bit, no parity bit
