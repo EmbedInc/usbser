@@ -1,5 +1,5 @@
                           Embed firmware USBSER
-                              11 June 2021
+                              14 June 2021
 
 Embed USB to serial converter firmware.  This device runs on a PIC 18F
 that includes a USB SIE and a UART.  The application on the USB host
@@ -55,10 +55,34 @@ Firmware Versions
 
   USBSER 1
 
-    Manufacturer name: "Embed Inc"
-    Product name: "USBSER"
-    PIC: 18F24K50
-    VID/PID: 5824/1489 (Embed device 10)
-    Serial port output FIFO size: ?? bytes
-    Serial port input FIFO size: ?? bytes
-    RXSTOP threshold: 8 or fewer bytes in serial input FIFO
+    Started with clone of Jowa JSER firmware.  Changed from PIC 18F14K50
+    to 18F24K50 processor.  This processor has more RAM, which allows
+    larger UART FIFOs and the maximum of 64 byte USB packets for endpoint
+    1.  All general variables are in bank 0 with the remaining banks 1-7
+    only for the USB data structures and the UART FIFOs.  The RAM layout
+    is:
+
+             .REGS: 000-010, length    17, type UDATA
+        .udata_acs: 011-022, length    18, type UDATA
+                    023-03F, length    29
+            .STACK: 040-05F, length    32, type UDATA
+            .BANK0: 060-0A9, length    74, type UDATA
+        .TASK1CTRL: 0AA-0C0, length    23, type UDATA
+        .TASK0CTRL: 0C1-0D7, length    23, type UDATA
+                    0D8-0FF, length    40
+
+      .UART_FIFOIN: 100-3FF, length   768, type UDATA
+
+            .USBBD: 400-455, length    86, type UDATA
+           .USBBUF: 456-605, length   432, type UDATA
+      .UART_FIFOUT: 606-7FF, length   506, type UDATA
+
+    The UART FIFOs have 5 bytes of overhead each.  The data sizes of the
+    FIFOs are:
+
+      UART input:    763 bytes
+      UART output:   501 bytes
+
+    The only optional feature implemented in this version is the TXGO
+    input, on RB1, pin 22.  This input is passively pulled high.  Pulling
+    it low causes the UART to stop sending.

@@ -121,7 +121,7 @@
 ;
 /const   enab_in bool = true ;enable the receiver
 /const   enab_inflag bool = true ;maintain FLAG_SIN
-/const   finsz   integer = 250 ;input FIFO size, 0 disables FIFO and interrupt
+/const   finsz   integer = 763 ;input FIFO size, 0 disables FIFO and interrupt
 /if [exist "Outbit_rxstop_bit:const"] then
   /const recv_ready string = "rxstop" ;name of pin to drive low on recv ready
   /endif
@@ -131,7 +131,7 @@
 ;
 /const   enab_out bool = true ;enable the transmitter
 /const   enab_outflag bool = true ;maintain FLAG_SOUT
-/const   fousz   integer = 250 ;output FIFO size, 0 disables FIFO and interrupt
+/const   fousz   integer = 501 ;output FIFO size, 0 disables FIFO and interrupt
 /const   use_txmt bool = false ;disable transmit ready bug workaround using TXMT
 /const   nsend_name string = "txgo" ;name of input pin to inhibit sending
 /const   nsend_int integer = 1 ;INTn input number NSEND_NAME is connected to

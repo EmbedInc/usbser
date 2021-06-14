@@ -70,7 +70,7 @@ gbankadr equ     0           ;put ordinary globals into access bank
   /const isolpwr bool = false ;not driving isolated power supply
   /const baud real = 273438  ;desired UART baud rate
   /const tick_per = 0.001    ;base clock tick period, seconds
-  /const vusb_in bool = false	;no USB voltage sense input
+  /const vusb_in bool = false ;no USB voltage sense input
 
 /optionelse                  ;BOARD didn't match a known board name
   /show "  Unsupported target board type " board " set in JDSP.INS.ASPIC"

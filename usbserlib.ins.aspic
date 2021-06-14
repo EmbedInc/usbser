@@ -12,10 +12,20 @@
 ;
 /const   freq_osc real = 48.0e6 ;CPU oscillator frequency in Hz
 ;
-;   Define the stack.  STACKLAST is the starting (lowest) address of the stack,
-;   and STACKSIZE the size of the stack in bytes.
+;   Define the data stack.  STACKLAST is the starting (lowest) address of the
+;   stack, and STACKSIZE the size of the stack in bytes.
 ;
-stacklast set    h'60'
+;   This firmware is unusual in that the data stack is deliberately placed in
+;   access RAM.  It doesn't benefit from being in access RAM, but this better
+;   balances the unused space between the access bank and banked RAM.  All but
+;   bank 0 is used for large buffers, like the USB I/O buffers and the UART
+;   FIFOs.  General variables are only in bank 0.  Since few of these variables
+;   need to be in access RAM, the stack is placed there.  This splits the unused
+;   space in bank 0 better between access RAM and banked memory.  The purpose of
+;   this is to more likely accomodate future additions to the firmware without
+;   requiring manual re-allocation of RAM.
+;
 stacksize set    32
+stacklast set    acclast + 1 - stacksize
 
 /include "(cog)src/pic/std.ins.aspic"
