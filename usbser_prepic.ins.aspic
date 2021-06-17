@@ -1,0 +1,264 @@
+//   This file contains PIC preprocessor (PREPIC) utilities that are used in
+//   other modules of this firmware.  The purpose is to remove prepic clutter
+//   from those modules so that the higher level logic is more visible.  The
+//   definitions in this file are available to all modules.  This file is
+//   included from the main project include file, USBSER.INS.ASPIC.
+//
+
+/if [not [exist "debug_pins:const"]] then
+  /const debug_pins bool = false
+  /endif
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//   Subroutine AssignPin port bit
+//
+//   If bit BIT within port PORT has not been assigned yet, then assign it.  It
+//   is assigned according to a name_IN_PIN or name_OUT_PIN constant, if it
+//   exists.  Otherwise, the pin is named the standard pin name ("RA1", "RB5",
+//   etc) and set to an output initialized to low.
+//
+//   PORT must be the single port name letter, and BIT the 0-N number of the bit
+//   within that port.
+//
+/subroutine AssignPin
+  /var local port string = [ucase [qstr [arg 1]]] //upper case port name letter
+  /var local bit integer = [vnl [arg 2]] //0-N bit number within the port
+  /var local pdata string //name of Portdata_xx constant for this pin
+
+  /set pdata [str "Portdata_" [lcase port] bit] //make Portdata_xx const name
+  /if [exist pdata] then //this port already defined ?
+    /return
+    /endif
+  //
+  //   Look for name_IN_PIN or name_OUT_PIN constant for this pin.
+  //
+  /loop symbols syq const
+    /var local sy string //bare symbol name
+    /var local l integer //string length
+    /var local valid bool
+    /var local name string //our assigned pin name
+    /var local out bool //output pin, not input pin
+
+    /if [<> [sym syq dtype] "STRING"] then //not STRING data type ?
+      /repeat
+      /endif
+    /set sy [sym syq name] //get bare symbol name
+    /set l [slen sy] //length of bare symbol name
+    /if [< l 8] then //too short for even x_IN_PIN ?
+      /repeat
+      /endif
+
+    /set valid false
+    /block
+      /if [= [substr [- l 6] l sy] "_in_pin"] then //is xxx_IN_PIN ?
+        /set name [substr 1 [- l 7] sy] //get assigned pin name
+        /set valid true
+        /set out false //indicate input pin
+        /quit
+        /endif
+      /if [< l 9] then //too short for x_OUT_PIN ?
+        /quit
+        /endif
+      /if [= [substr [- l 7] l sy] "_out_pin"] then //is xxx_OUT_PIN ?
+        /set name [substr 1 [- l 8] sy] //get assigned pin name
+        /set valid true
+        /set out true //indicate output pin
+        /quit
+        /endif
+      /endblock
+    /if [not valid] then
+      /repeat
+      /endif
+    //
+    //   This is a name_IN_PIN or name_OUT_PIN constant.  NAME is name to
+    //   assign to the pin, and OUT indicates the direction.
+    //
+    /call pinname_parse [chars syq] //set PINNAME_PORT, PINNAME_BIT
+    /if [and [= pinname_port port] [= pinname_bit bit]] then //matches this pin ?
+      /if out
+        /then
+          /outbit [chars name] port[chars [lcase port]] [v bit]
+        /else
+          /inbit [chars name] port[chars [lcase port]] [v bit]
+        /endif
+      /return
+      /endif
+    /endloop
+  //
+  //   No name_IN_PIN or name_OUT_PIN constant exists for this pin.  Set default
+  //   assignment for this pin.
+  //
+  /outbit r[chars [lcase port]][v bit] port[chars [lcase port]] [v bit]
+  /endsub
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//   Subroutine CHECK_PIN_ERR
+//
+//   Check for any xxx_IN_PIN or xxx_OUT_PIN constants that did not result in
+//   the associated pin assignment.  This can be because the pin already had a
+//   fixed function assigned, attempt to assign multiple functions to the same
+//   pin, or attempt to assign a non-existing or invalid pin.
+//
+/subroutine check_pin_err
+  /var local err bool = false //init to no errors encountered
+
+  //   Check all name_IN_PIN and name_OUT_PIN constants.
+  //
+  /loop symbols syq const
+    /var local sy string //bare symbol name
+    /var local l integer //string length
+    /var local name string //our assigned pin name
+    /var local out bool //output pin, not input pin
+    /var local valid bool
+    /var local pdata string //name of Portdata_xx constant
+    /var local p integer //parse index
+    /var local tk string //token parsed from string
+
+    /if [<> [sym syq dtype] "STRING"] then //not STRING data type ?
+      /repeat
+      /endif
+    /set sy [sym syq name] //get bare symbol name
+    /set l [slen sy] //length of bare symbol name
+    /if [< l 8] then //too short for even x_IN_PIN ?
+      /repeat
+      /endif
+
+    /set valid false
+    /block
+      /if [= [substr [- l 6] l sy] "_in_pin"] then //is xxx_IN_PIN ?
+        /set name [substr 1 [- l 7] sy] //get assigned pin name
+        /set valid true
+        /set out false //indicate input pin
+        /quit
+        /endif
+      /if [< l 9] then //too short for x_OUT_PIN ?
+        /quit
+        /endif
+      /if [= [substr [- l 7] l sy] "_out_pin"] then //is xxx_OUT_PIN ?
+        /set name [substr 1 [- l 8] sy] //get assigned pin name
+        /set valid true
+        /set out true //indicate output pin
+        /quit
+        /endif
+      /endblock
+    /if [not valid] then
+      /repeat
+      /endif
+    //
+    //   This symbol is a pin assignment.  The following variables are set:
+    //
+    //     NAME  -  Name to assign to the pin.
+    //
+    //     OUT  -  TRUE for output pin, FALSE for input pin.
+    //
+    /call pinname_parse [chars syq] //set PINNAME_PORT, PINNAME_BIT
+    /set pdata [str "Portdata_" [lcase pinname_port] pinname_bit]
+
+    /if [not [exist [str pdata ":const"]]] then
+      /show "  " [ucase sy] " specifies non-existant I/O pin " [chars syq] "."
+      /set err true
+      /repeat
+      /endif
+
+    /set p 1 //init parse index
+    /call string_token [v [chars pdata]] p tk
+    /if [<> [ucase name] [ucase tk]] then //pin didn't get this name ?
+      /show "  " [ucase sy] " specifies duplicate assignment to " [chars syq] "."
+      /set err true
+      /repeat
+      /endif
+    /endloop
+
+  /if err then //found pin assignment errors ?
+    /show
+         error   Pin
+         end
+    /stop
+    /endif
+  /endsub
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//   Subroutine SHOW_PIN port bit
+//
+//   Show the configuration of the I/O pin for bit BIT of port PORT.  PORT must
+//   be the single port name letter, and BIT the 0-N number of the bit within
+//   that port.
+//
+/subroutine show_pin
+  /var local port string = [ucase [qstr [arg 1]]] //upper case port name letter
+  /var local bit integer = [vnl [arg 2]] //0-N bit number within the port
+  /var local s string //output string
+  /var local pdata string //name of Portdata_xx constant for this pin
+  /var local p integer //Portdata_xx parse index
+  /var local tk string //parsed token
+  /var local rj integer //column to right-justify output token to
+
+  /if [and [<> lastp ""] [<> port lastp]] then //different port than last time ?
+    /show
+    /endif
+  /set lastp port
+
+  /set s [str "R" port bit ": "] //init output string
+  /set pdata [str "Portdata_" [lcase port] bit] //make Portdata_xx const name
+
+  /block //abort out when output string all done
+    /if [not [exist pdata]] then //this pin not configured ?
+      /append s "Unconfigured"
+      /quit
+      /endif
+
+    /set p 1 //init string parse index
+    /loop with ii from 0 //once for each token in Portdata_xx
+      /call string_token [v [chars pdata]] p tk //get next pin config token
+      /if [= tk ""] then
+        /quit
+        /endif
+      /set rj [+ 15 [* ii 5]] //make column to right justify at
+      /call tabto s [- rj [slen tk] -1]
+      /append s tk
+      /endloop
+    /endblock
+
+  /show "  " s
+  /endsub
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//   Subroutine SHOW_PINS
+//
+//   Show the pin assignments, if DEBUG_PINS exists and is set to TRUE.
+//
+//   Show final pin assignments.
+//
+/subroutine show_pins
+  /var local lastp string //upper case letter of last-shown port
+
+  /if [not debug_pins] then
+    /return
+    /endif
+
+  /call show_pin A 0
+  /call show_pin A 1
+  /call show_pin A 2
+  /call show_pin A 3
+  /call show_pin A 4
+  /call show_pin A 5
+
+  /call show_pin B 0
+  /call show_pin B 1
+  /call show_pin B 2
+  /call show_pin B 3
+  /call show_pin B 4
+  /call show_pin B 5
+  /call show_pin B 6
+  /call show_pin B 7
+
+  /call show_pin C 0
+  /call show_pin C 1
+  /call show_pin C 2
+  /call show_pin C 6
+  /call show_pin C 7
+  /endsub

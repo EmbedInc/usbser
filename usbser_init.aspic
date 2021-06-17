@@ -19,6 +19,8 @@ lbank    equ     0           ;register bank for the local state of this module
 ;
 lbankadr equ     bankadr(lbank) ;address within local state register bank
 
+/call show_pins //show pin assignments if enabled by DEBUG_PINS
+
 ;*******************************************************************************
 ;
 ;   Local state.

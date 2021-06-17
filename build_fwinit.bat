@@ -22,5 +22,6 @@ call src_get_ins_aspic pic usb0
 
 call src_ins_aspic %srcdir% %fwname%lib -set make_version
 call src_get_ins_aspic %srcdir% %fwname%
+call src_get_ins_aspic %srcdir% %fwname%_prepic
 call src_get_ins_aspic %srcdir% %fwname%_usb
 call src_get_ins_aspic %srcdir% %fwname%_usb0

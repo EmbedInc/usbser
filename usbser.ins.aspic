@@ -41,6 +41,7 @@
 /const   debug_0flood bool = false ;sends max rate 0 bytes to host when TP1 low
 /const   debug_txie bool = false ;show TXIE state
 /const   debug_main bool = false ;show on out pin when in main loop
+/const   debug_pins bool = true ;show final I/O pin assignments in INIT module
 ;
 ;   Application configuration parameters
 ;
@@ -78,6 +79,7 @@ gbankadr equ     0           ;put ordinary globals into access bank
   /stop
   /endpick
 
+/include "usbser_prepic.ins.aspic"
 /include "usbserlib.ins.aspic"
 ;
 ;   Define the set or registers that will be saved across calls to TASK_YIELD.
@@ -183,88 +185,6 @@ namemaxlen equ   [v namemaxlen]
 //   flagged when a xxx_IN_PIN or xxx_OUT_PIN constant exists to an unavailable
 //   or non-existant pin.
 //
-
-//   Subroutine AssignPin port bit
-//
-//   If bit BIT within port PORT has not been assigned yet, then assign it.  It
-//   is assigned according to a name_IN_PIN or name_OUT_PIN constant, if it
-//   exists.  Otherwise, the pin is named the standard pin name ("RA1", "RB5",
-//   etc) and set to an output initialized to low.
-//
-//   PORT must be the single port name letter, and BIT the 0-N number of the bit
-//   within that port.
-//
-/subroutine AssignPin
-  /var local port string = [ucase [qstr [arg 1]]] //upper case port name letter
-  /var local bit integer = [vnl [arg 2]] //0-N bit number within the port
-  /var local pdata string //name of Portdata_xx constant for this pin
-
-  /set pdata [str "Portdata_" [lcase port] bit] //make Portdata_xx const name
-  /if [exist pdata] then //this port already defined ?
-    /return
-    /endif
-  //
-  //   Look for name_IN_PIN or name_OUT_PIN constant for this pin.
-  //
-  /loop symbols syq const
-    /var local sy string //bare symbol name
-    /var local l integer //string length
-    /var local valid bool
-    /var local name string //our assigned pin name
-    /var local out bool //output pin, not input pin
-
-    /if [<> [sym syq dtype] "STRING"] then //not STRING data type ?
-      /repeat
-      /endif
-    /set sy [sym syq name] //get bare symbol name
-    /set l [slen sy] //length of bare symbol name
-    /if [< l 8] then //too short for even x_IN_PIN ?
-      /repeat
-      /endif
-
-    /set valid false
-    /block
-      /if [= [substr [- l 6] l sy] "_in_pin"] then //is xxx_IN_PIN ?
-        /set name [substr 1 [- l 7] sy] //get assigned pin name
-        /set valid true
-        /set out false //indicate input pin
-        /quit
-        /endif
-      /if [< l 9] then //too short for x_OUT_PIN ?
-        /quit
-        /endif
-      /if [= [substr [- l 7] l sy] "_out_pin"] then //is xxx_OUT_PIN ?
-        /set name [substr 1 [- l 8] sy] //get assigned pin name
-        /set valid true
-        /set out true //indicate output pin
-        /quit
-        /endif
-      /endblock
-    /if [not valid] then
-      /repeat
-      /endif
-    //
-    //   This is a name_IN_PIN or name_OUT_PIN constant.  NAME is name to
-    //   assign to the pin, and OUT indicates the direction.
-    //
-    /call pinname_parse [chars syq] //set PINNAME_PORT, PINNAME_BIT
-    /if [and [= pinname_port port] [= pinname_bit bit]] then //matches this pin ?
-      /if out
-        /then
-          /outbit [chars name] port[chars [lcase port]] [v bit]
-        /else
-          /inbit [chars name] port[chars [lcase port]] [v bit]
-        /endif
-      /return
-      /endif
-    /endloop
-  //
-  //   No name_IN_PIN or name_OUT_PIN constant exists for this pin.  Set default
-  //   assignment for this pin.
-  //
-  /outbit r[chars [lcase port]][v bit] port[chars [lcase port]] [v bit]
-  /endsub
-
 /call AssignPin A 0
 /call AssignPin A 1
 /call AssignPin A 2
@@ -287,108 +207,4 @@ namemaxlen equ   [v namemaxlen]
 /call AssignPin C 6
 /call AssignPin C 7
 
-//   Check for any xxx_IN_PIN or xxx_OUT_PIN constants that did not result in
-//   the associated pin assignment.  This can be because the pin already had a
-//   fixed function assigned, attempt to assign multiple functions to the same
-//   pin, or attempt to assign a non-existing or invalid pin.
-//
-/var new err bool = false //init to no errors encountered
-
-/loop symbols syq const
-  /var local sy string //bare symbol name
-  /var local l integer //string length
-  /var local name string //our assigned pin name
-  /var local out bool //output pin, not input pin
-  /var local valid bool
-  /var local pdata string //name of Portdata_xx constant
-  /var local p integer //parse index
-  /var local tk string //token parsed from string
-
-  /if [<> [sym syq dtype] "STRING"] then //not STRING data type ?
-    /repeat
-    /endif
-  /set sy [sym syq name] //get bare symbol name
-  /set l [slen sy] //length of bare symbol name
-  /if [< l 8] then //too short for even x_IN_PIN ?
-    /repeat
-    /endif
-
-  /set valid false
-  /block
-    /if [= [substr [- l 6] l sy] "_in_pin"] then //is xxx_IN_PIN ?
-      /set name [substr 1 [- l 7] sy] //get assigned pin name
-      /set valid true
-      /set out false //indicate input pin
-      /quit
-      /endif
-    /if [< l 9] then //too short for x_OUT_PIN ?
-      /quit
-      /endif
-    /if [= [substr [- l 7] l sy] "_out_pin"] then //is xxx_OUT_PIN ?
-      /set name [substr 1 [- l 8] sy] //get assigned pin name
-      /set valid true
-      /set out true //indicate output pin
-      /quit
-      /endif
-    /endblock
-  /if [not valid] then
-    /repeat
-    /endif
-  //
-  //   This symbol is a pin assignment.  The following variables are set:
-  //
-  //     NAME  -  Name to assign to the pin.
-  //
-  //     OUT  -  TRUE for output pin, FALSE for input pin.
-  //
-  /call pinname_parse [chars syq] //set PINNAME_PORT, PINNAME_BIT
-  /set pdata [str "Portdata_" [lcase pinname_port] pinname_bit]
-
-  /if [not [exist [str pdata ":const"]]] then
-    /show "  " [ucase sy] " specifies non-existant I/O pin " [chars syq] "."
-    /set err true
-    /repeat
-    /endif
-
-  /set p 1 //init parse index
-  /call string_token [v [chars pdata]] p tk
-  /if [<> [ucase name] [ucase tk]] then //pin didn't get this name ?
-    /show "  " [ucase sy] " specifies duplicate assignment to " [chars syq] "."
-    /set err true
-    /repeat
-    /endif
-  /endloop
-
-/if err then //found pin assignment errors ?
-  /show
-         error   Pin
-         end
-  /stop
-  /endif
-/del err
-
-//   Show final pin assignments.
-//
-/if false then
-  /call showval Portdata_a0
-  /call showval Portdata_a1
-  /call showval Portdata_a2
-  /call showval Portdata_a3
-  /call showval Portdata_a4
-  /call showval Portdata_a5
-
-  /call showval Portdata_b0
-  /call showval Portdata_b1
-  /call showval Portdata_b2
-  /call showval Portdata_b3
-  /call showval Portdata_b4
-  /call showval Portdata_b5
-  /call showval Portdata_b6
-  /call showval Portdata_b7
-
-  /call showval Portdata_c0
-  /call showval Portdata_c1
-  /call showval Portdata_c2
-  /call showval Portdata_c6
-  /call showval Portdata_c7
-  /endif
+/call check_pin_err //check for pin assignment errors
