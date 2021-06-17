@@ -38,6 +38,12 @@ lbank    equ     0           ;register bank for the local state of this module
 ;
 /const   pstretch real = 1.0e-6 ;seconds pulse is stretched by hardware
 /const   vdd     real = 5.0  ;nominal Vdd voltage
+;
+;   Derived constants.
+;
+/if [not [exist "isolpwr:const"]] then
+  /const isolpwr bool = false
+  /endif
 
 ;*******************************************************************************
 ;

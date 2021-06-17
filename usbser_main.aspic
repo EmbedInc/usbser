@@ -21,6 +21,10 @@ lbankadr equ     bankadr(lbank) ;address within local state register bank
 
   /endblock
 
+/if [not [exist "vusb_in:const"]] then
+  /const vusb_in bool = false
+  /endif
+
 ;*******************************************************************************
 ;
 ;   Local state.
