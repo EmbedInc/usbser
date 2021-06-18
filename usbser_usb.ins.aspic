@@ -76,8 +76,8 @@ iotype_intr equ  3           ;interrupt transfers
 ;
 out0sz   equ     8           ;buffer size for endpoint 0 OUT, must be enabled
 in0sz    equ     8           ;buffer size for endpoint 0 IN, must be enabled
-out1sz   equ     [v usb_bufsz1] ;buffer size for endpoint 1 OUT
-in1sz    equ     [v usb_bufsz1] ;buffer size for endpoint 1 IN
+out1sz   equ     64          ;buffer size for endpoint 1 OUT
+in1sz    equ     64          ;buffer size for endpoint 1 IN
 out2sz   equ     0           ;buffer size for endpoint 2 OUT
 in2sz    equ     0           ;buffer size for endpoint 2 IN
 out3sz   equ     0           ;buffer size for endpoint 3 OUT

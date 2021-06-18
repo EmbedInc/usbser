@@ -29,22 +29,18 @@ control over sending from the host to the device.  Since USB is inherently
 flow controlled, holding the TXGO line low will eventually cause this
 firmware to not accept new data from the host over the USB.  The TXGO line
 is passively pulled high so that nothing needs to be connected to it when
-this feature is not used.
+this feature is not used.  The TXGO signal can be configured at build time
+to be on the INT0 (RB0) pin, INT1 (RB1) pin, INT2 (RB2) pin, or disabled
+altogether.
 
-Flow control in the device to host direction is implemented with the RXGO
-and RXSTOP outputs.  In normal operation, the RXGO line is driven high,
-and the RXSTOP line low.  When there are only a few bytes of room left in
-the UART input FIFO, RXGO is driven low and RXSTOP high.  The lines are
-driven back to their normal state when the FIFO is drained due to the host
-reading data from the device over the USB.  The RXGO and RXSTOP lines
-provide the same signal with opposite polarity for ease of hardware
-interfacing.  It is intended that at most one of these signals is used in
-any specific implementation.
-
-Note that flow control to slow the sending of data from the device to the
-host is often not necessary.  Most USB implementations are much faster
-than common UART baud rates, such that it is usually impossible for the
-device to overrun the USB.
+Flow control in the device to host direction is implemented with the
+RXREADY output.  In normal operation, the RXGO line is asserted.  When
+there are only a few bytes of room left in the UART input FIFO, the
+RXREADY line is de-asserted.  The polarity of the RXREADY line can be
+configured at build time.  Note that flow control to slow the sending of
+data from the device to the host is often not necessary.  Most USB
+implementations are much faster than common UART baud rates, such that it
+is usually impossible for the device to overrun the USB.
 
 This firmware does not interpret the bytes it passes between the USB and
 the UART, so implements no command set of its own except as provided for

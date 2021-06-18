@@ -122,8 +122,8 @@
 /const   enab_in bool = true ;enable the receiver
 /const   enab_inflag bool = true ;maintain FLAG_SIN
 /const   finsz   integer = 763 ;input FIFO size, 0 disables FIFO and interrupt
-/if [exist "Outbit_rxstop_bit:const"] then
-  /const recv_ready string = "rxstop" ;name of pin to drive low on recv ready
+/if [exist "Outbit_rxready_bit:const"] then
+  /const recv_ready string = "rxready" ;name of pin to assert on recv ready
   /endif
 /const   recv_nready integer = 8 ;de-assert RECV_READY this much room in FIFO
 ;
@@ -133,10 +133,20 @@
 /const   enab_outflag bool = true ;maintain FLAG_SOUT
 /const   fousz   integer = 501 ;output FIFO size, 0 disables FIFO and interrupt
 /const   use_txmt bool = false ;disable transmit ready bug workaround using TXMT
-/if [exist "Inbit_txgo_bit:const"] then
+/if txgo0 then
+  /const nsend_name string = "txgo" ;name of input pin to inhibit sending
+  /const nsend_int integer = 0 ;INTn input number NSEND_NAME is connected to
+  /const nsend_high bool = false ;low inhibits sending
+  /endif
+/if txgo1 then
   /const nsend_name string = "txgo" ;name of input pin to inhibit sending
   /const nsend_int integer = 1 ;INTn input number NSEND_NAME is connected to
-  /const nsend_high bool = false ;NSEND line high to inhibit sending
+  /const nsend_high bool = false ;low inhibits sending
+  /endif
+/if txgo2 then
+  /const nsend_name string = "txgo" ;name of input pin to inhibit sending
+  /const nsend_int integer = 2 ;INTn input number NSEND_NAME is connected to
+  /const nsend_high bool = false ;low inhibits sending
   /endif
 
 /include "(cog)src/pic/uart.ins.aspic"

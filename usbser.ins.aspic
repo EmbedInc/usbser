@@ -48,6 +48,8 @@
 /const   namemaxlen integer = 80 ;max allowed char in user-settable name string
 /const   cmd_ustat integer = 255 ;USB status command opcode to send to client
 
+/include "usbserlib.ins.aspic"
+
 gbankadr equ     0           ;put ordinary globals into access bank
 ;
 ;   Identify the taget hardware.  BOARD can be one of the following strings:
@@ -64,13 +66,13 @@ gbankadr equ     0           ;put ordinary globals into access bank
   /const usb_vid integer = 5824 ;USB vendor ID
   /const usb_pid integer = 1489 ;device ID within VID, Embed device 10
   /const usb_curr real = 0.050 ;USB power current draw, A
-  /const usb_bufsz1 integer = 64 ;size of USB endpoint 1 buffers
   /const usb_manuf string = "Jowa USA" ;manufacturer name
-  /const usb_prod string = "Sentry 5 USB to CAN bridge" ;product name
+  /const usb_prod string = "Sentry 5" ;product name
   /const usb_name = "Jowa Sentry 5" ;Embed10 device name
   /const tick_per = 0.001    ;base clock tick period, seconds
   /const baud real = 273438  ;desired UART baud rate
-  /const txgo_in_pin string = "RB1" ;TXGO pin, allows UART sending when high
+  /const txgo1 bool = true   ;using TXGO on INT1 input
+  /outbit rxready portb 2    ;pin to set high when ready to receive UART data
 
 /optionelse                  ;BOARD didn't match a known board name
   /show "  Unsupported target board type " board " set in JDSP.INS.ASPIC"
@@ -78,9 +80,20 @@ gbankadr equ     0           ;put ordinary globals into access bank
          end
   /stop
   /endpick
+;
+;   Make sure all the necessary constants are defined.
+;
+/if [not [exist "txgo0:const"]] then
+  /const txgo0 bool = false
+  /endif
+/if [not [exist "txgo1:const"]] then
+  /const txgo1 bool = false
+  /endif
+/if [not [exist "txgo2:const"]] then
+  /const txgo2 bool = false
+  /endif
 
 /include "usbser_prepic.ins.aspic"
-/include "usbserlib.ins.aspic"
 ;
 ;   Define the set or registers that will be saved across calls to TASK_YIELD.
 ;
@@ -160,6 +173,16 @@ namemaxlen equ   [v namemaxlen]
 ;
 ;   Define the I/O pins with fixed functions that can't be moved to other pins.
 ;
+/if txgo0 then
+  /inbit txgo portb 0 pup    ;allows UART sending, using INT0
+  /endif
+/if txgo1 then
+  /inbit txgo portb 1 pup    ;allows UART sending, using INT1
+  /endif
+/if txgo2 then
+  /inbit txgo portb 2 pup    ;allows UART sending, using INT2
+  /endif
+
 /outbit  pgc     portb 6     ;programming clock line
 /outbit  pgd     portb 7     ;programming data line
 
