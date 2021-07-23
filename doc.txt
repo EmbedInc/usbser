@@ -1,5 +1,5 @@
                           Embed firmware USBSER
-                              14 June 2021
+                               23 July 2021
 
 Embed USB to serial converter firmware.  This device runs on a PIC 18F
 that includes a USB SIE and a UART.  The application on the USB host
@@ -84,3 +84,28 @@ Firmware Versions
     it low causes the UART to stop sending.
 
     Serial port: 273,438 baud, 8 data bits, 1 stop bit, no parity bit
+
+  USBSER 2 seq 35, 23 Jul 2021
+
+    Sentry 5 production version for rev B boards (S5MAIN2).
+
+    Changed how optional pins are defined in USBSER.INS.ASPIC.  Move some
+    preprocessor routines to the separate file USBSER_PREPIC.INS.ASPIC.
+    Streamlined some build-time configuration.
+
+    RAM layout:
+
+             .REGS: 000-010, length    17, type UDATA
+        .udata_acs: 011-022, length    18, type UDATA
+                    023-03F, length    29
+            .STACK: 040-05F, length    32, type UDATA
+            .BANK0: 060-0A9, length    74, type UDATA
+        .TASK1CTRL: 0AA-0C0, length    23, type UDATA
+        .TASK0CTRL: 0C1-0D7, length    23, type UDATA
+                    0D8-0FF, length    40
+
+      .UART_FIFOIN: 100-3FF, length   768, type UDATA
+
+            .USBBD: 400-455, length    86, type UDATA
+           .USBBUF: 456-605, length   432, type UDATA
+      .UART_FIFOUT: 606-7FF, length   506, type UDATA
