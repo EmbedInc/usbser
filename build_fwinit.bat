@@ -18,6 +18,7 @@ call src_get_ins_aspic pic task
 call src_get_ins_aspic pic task_setup
 call src_get_ins_aspic pic uart
 call src_get_ins_aspic pic usb
+call src_get_ins_aspic pic usb_setup
 call src_get_ins_aspic pic usb0
 
 call src_ins_aspic %srcdir% %fwname%lib -set make_version
