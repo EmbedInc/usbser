@@ -4,6 +4,7 @@
 /include "usbser.ins.aspic"
 
          extern_flags        ;declare global flag bits EXTERN
+         extern  tick5ms     ;5 ms clock tick counter
 
 ;*******************************************************************************
 ;
@@ -32,14 +33,19 @@ lbankadr equ     bankadr(lbank) ;address within local state register bank
          defram  lbankadr
 
 uinbyte  res     1           ;byte read from UART
+usb5ms   res     1           ;5 ms clock USB is up to date with
+
 ustatus  res     1           ;USTAT STATUS byte value
                              ;000----- USTAT STATUS opcode
                              ;---000-- unused, set to 0
                              ;------X- APP bit, application is connected
                              ;-------X HOS bit, USB power is on
-
 bit_app  equ     1           ;APP bit number within USTAT STATUS byte
 bit_hos  equ     0           ;HOS bit number within USTAT STATUS byte
+
+/if debug then
+         global  usb5ms
+  /endif
 
 
 .main    code
@@ -117,6 +123,7 @@ sync_dwait unbank
 
          mcall   ctrlsync    ;make sure the controller is at start of command
          mcall   send_fwinfo ;send our firmware info to the controller
+         movff   tick5ms, usb5ms ;init clock USB routines are up to date with
 
 ;**********
 ;
@@ -286,6 +293,29 @@ uget_done unbank             ;done getting bytes from UART
          jump    loop_main
 
 no_uput  unbank
+;
+;   Notify the USB routines of any new elapsed time.  This is used to detect
+;   wedged USB hardware, in which case the processor is reset.
+;
+;   Multiple accumulated ticks are deliberately not handled here.  If the USB
+;   system is notified of multiple ticks in succession without its task being
+;   able to run, then it may look like there was no activity for an entire
+;   interval.
+;
+         dbankif gbankadr
+         movf    tick5ms, w  ;get the current 5 ms clock tick counter
+         dbankif lbankadr
+         xorwf   usb5ms, w   ;compare to value USB is up to date with
+         bz      d_usbtick   ;no new clock tick, nothing more to do ?
+         ;
+         ;   There is a new clock tick.
+         ;
+         dbankif lbankadr
+         incf    usb5ms      ;update clock value now current with
+         loadk8  reg0, 5     ;pass number of ms elapsed
+         gcall   usb_tick    ;notify USB routines of new elapsed time
+
+d_usbtick unbank             ;done with clock ticks for USB routines
 ;
 ;   Done checking all events.  Go back to the start of the event loop and check
 ;   them all again.

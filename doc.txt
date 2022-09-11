@@ -1,5 +1,5 @@
                           Embed firmware USBSER
-                               23 July 2021
+                            11 September 2022
 
 Embed USB to serial converter firmware.  This device runs on a PIC 18F
 that includes a USB SIE and a UART.  The application on the USB host
@@ -109,3 +109,8 @@ Firmware Versions
             .USBBD: 400-455, length    86, type UDATA
            .USBBUF: 456-605, length   432, type UDATA
       .UART_FIFOUT: 606-7FF, length   506, type UDATA
+
+  USBSER 3
+
+    Added detecting the USB hardware is wedged, and resetting the
+    processor to recover.
