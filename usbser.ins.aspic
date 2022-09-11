@@ -36,8 +36,8 @@
 ;       regulation threshold.  Only used when ISOLPWR is TRUE.  Managed in the
 ;       SUPP module.
 ;
-/const   debug_icd bool = false
-/const   debug   bool = false
+/include "usbserlib.ins.aspic"
+
 /const   debug_0flood bool = false ;sends max rate 0 bytes to host when TP1 low
 /const   debug_txie bool = false ;show TXIE state
 /const   debug_main bool = false ;show on out pin when in main loop
@@ -47,8 +47,6 @@
 ;
 /const   namemaxlen integer = 80 ;max allowed char in user-settable name string
 /const   cmd_ustat integer = 255 ;USB status command opcode to send to client
-
-/include "usbserlib.ins.aspic"
 
 gbankadr equ     0           ;put ordinary globals into access bank
 ;
