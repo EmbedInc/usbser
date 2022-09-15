@@ -152,6 +152,7 @@ lbank    equ     0           ;register bank for the local state of this module
 //
 /macro no_sof
          loadk16 reg0, 1000  ;give time for host to see our USB gone
+         gcall   waitms16
          reset               ;reset processor, re-initializes everything
   /endmac
 
