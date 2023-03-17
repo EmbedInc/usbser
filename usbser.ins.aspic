@@ -53,14 +53,34 @@ gbankadr equ     0           ;put ordinary globals into access bank
 ;   Identify the taget hardware.  BOARD can be one of the following strings:
 ;
 ;     S5MAIN2  -  The USB to serial converter built into the second Sentry 5
-;       prototype, or later compatible.
+;       prototype.
 ;
-;   Derive low level configuration details from the target board type.
+;     S5MAIN3  -  Jowa Sentry 5 board, version 3.
 ;
-/const   board   string = "S5MAIN2"
+;   Derive low level configuration details from the target board type.  Features
+;   can be enabled with the following preprocessor constants.
+;
+;     TXGO0, TXGO1, TXGO2  -  Bool constant.
+;
+;       Causes the INTn input be used for UART sending flow control.  When the
+;       INTn input is high, UART data is transmitted when available.  When the
+;       input is externally held low, then UART sending is inhibited.  Since the
+;       USB is inherently flow controlled, this merely slows the data sent out
+;       the UART without causing any loss.
+;
+;       These pins are passively pulled up.  The default is not to implement
+;       any UART output inhibit, which allows the INTn pins to be used for other
+;       purposes.
+;
+;     RXREADY output pin
+;
+;       If this pin is defined, it is driven high whenver the UART is ready to
+;       receive another byte.
+;
+/const   board   string = "S5MAIN3"
 /pick one by board
 
-/option "S5MAIN2"            ;Sentry 5 USB to CAN bridge, board ver 2
+/option "S5MAIN2" "S5MAIN3"  ;Sentry 5 USB to CAN bridge
   /const usb_vid integer = 5824 ;USB vendor ID
   /const usb_pid integer = 1489 ;device ID within VID, Embed device 10
   /const usb_curr real = 0.050 ;USB power current draw, A

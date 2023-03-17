@@ -196,6 +196,7 @@ n_sendustat unbank
          jump    n_poff      ;host is connected, skip this section
 
 poff_usb unbank              ;back here until all bytes from the USB are drained
+         clrf    reg1        ;indicate to transfer byte if one is available
          gcall   usb_get1    ;try to get byte from USB buffer
          btfss   reg1, usbs_noxf ;didn't get a byte ?
          jump    poff_usb    ;got a byte, go back for another one
