@@ -1,5 +1,5 @@
                           Embed firmware USBSER
-                            11 September 2022
+                              9 August 2023
 
 Embed USB to serial converter firmware.  This device runs on a PIC 18F
 that includes a USB SIE and a UART.  The application on the USB host
@@ -89,7 +89,7 @@ Firmware Versions
 
     Sentry 5 production version for rev B boards (S5MAIN2).
 
-    Changed how optional pins are defined in USBSER.INS.ASPIC.  Move some
+    Changed how optional pins are defined in USBSER.INS.ASPIC.  Moved some
     preprocessor routines to the separate file USBSER_PREPIC.INS.ASPIC.
     Streamlined some build-time configuration.
 
